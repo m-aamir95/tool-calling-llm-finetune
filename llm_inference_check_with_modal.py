@@ -17,7 +17,6 @@ image_to_use = (
         "hf_transfer",
     )
     .pip_install_from_requirements("requirements.txt")
-    .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
 
 model_volume = modal.Volume.from_name("gemma-models", create_if_missing=True)
@@ -59,6 +58,12 @@ class GemmaInference:
         self.tokenizer = AutoTokenizer.from_pretrained(
             str(MODEL_DIR), local_files_only=True
         )
+
+        # Setting up the padding tokens
+        self.tokenizer.padding_side = "left"
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
         # Use float16 for Nvidia T4 (bfloat16 is inefficient on T4)
         self.model = AutoModelForCausalLM.from_pretrained(
             str(MODEL_DIR),
@@ -68,11 +73,18 @@ class GemmaInference:
         )
 
     @modal.method()
-    def run(self, messages: list[dict[str, str]]) -> str:
+    
+    def run(self, messages: list[list[dict[str, str]]]) -> str:
+        """
+        messages : List of all the requests for the model
+                   -> each request contains another list of messages storred in the chatml format
+                   -> each item of inner list is dict containing role, and content key value pairs
+        """
         inputs = self.tokenizer.apply_chat_template(
             messages,
             add_generation_prompt=True,
             tokenize=True,
+            padding=True,
             return_dict=True,
             return_tensors="pt",
         ).to(self.model.device)
@@ -84,11 +96,11 @@ class GemmaInference:
             temperature=0.1,
         )
 
-        # Slice output to strip the input prompt tokens and return only generated tokens
-        input_len = inputs["input_ids"].shape[-1]
-        generated_tokens = output[0][input_len:]
-
-        return self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+        input_width = inputs["input_ids"].shape[-1]
+        return self.tokenizer.batch_decode(
+            output[:, input_width:],
+            skip_special_tokens=True
+        )
 
 
 @app.local_entrypoint()
@@ -96,12 +108,20 @@ def main():
     download_model.remote()
 
     messages = [
-        {
+        [{
             "role": "user",
             "content": "What is the weather in Karachi in October and November?",
-        }
+        }],
+
+        [{
+            "role": "user",
+            "content": "What is 2+2",
+        }]
     ]
 
-    response = GemmaInference().run.remote(messages)
+    responses = GemmaInference().run.remote(messages)
     print("\n--- Model Response ---")
-    print(response)
+
+    for response in responses:
+        print(response)
+        print("*"*10)
