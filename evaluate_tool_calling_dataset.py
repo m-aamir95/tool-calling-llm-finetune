@@ -1,5 +1,6 @@
 import modal
-
+from datasets import load_dataset
+from typing import Dict
 
 model_downloader = modal.Function.from_name(
     "llm-t4-inference-experimentation",
@@ -12,78 +13,77 @@ model_inference_engine = modal.Cls.from_name(
 )
 
 
+"""
+ messages_sample = [
+            [{
+                "role": "user",
+                "content": "What is the weather in Karachi in October and November?",
+            }],
 
-def go_for_the_evaluation_boy():
+            [{
+                "role": "user",
+                "content": "What is 2+2",
+            }]
+        ]
+"""
+def go_for_the_evaluation_boy(messages : list[list[Dict[str, str]]]) -> list[str]:
 
     # Make sure that the model is is downloaded on the Modal volumes
     model_downloader.remote()
-    
-    # messages = [
-    #         [{
-    #             "role": "user",
-    #             "content": "What is the weather in Karachi in October and November?",
-    #         }],
 
-    #         [{
-    #             "role": "user",
-    #             "content": "What is 2+2",
-    #         }]
-    #     ]
+    return model_inference_engine().run.remote(messages)
 
-    messages = [
-    # 1. Weather & Geography
-    [{"role": "user", "content": "What is the weather in Karachi in October and November?"}],
-    [{"role": "user", "content": "What is the capital city of France?"}],
-    [{"role": "user", "content": "Name three oceans in the world."}],
-    [{"role": "user", "content": "Which continent is Egypt located in?"}],
 
-    # 2. Basic Math & Logic
-    [{"role": "user", "content": "What is 2+2?"}],
-    [{"role": "user", "content": "What is 15 divided by 3?"}],
-    [{"role": "user", "content": "Is 17 an even or odd number?"}],
-    [{"role": "user", "content": "What comes next in the pattern: 2, 4, 6, 8, __?"}],
+def extract_system_and_user_messages_only(ds):
+    """
+    The Hermes dataset contains:
+    system (tool definitions & instructions) + human (user prompt) + gpt (tool call / model response) ...
 
-    # 3. Simple Definitions & Facts
-    [{"role": "user", "content": "What color do you get when you mix blue and yellow?"}],
-    [{"role": "user", "content": "What is the main function of the heart?"}],
-    [{"role": "user", "content": "How many days are in a leap year?"}],
-    [{"role": "user", "content": "What planet is closest to the Sun?"}],
+    Gemma models do not natively support a separate 'system' role in apply_chat_template.
+    Instead, system instructions are prepended directly into the first user turn.
+    """
+    transformed_ds = []
+    for d in ds:
+        convs = d["conversations"]
+        system_content = convs[0]["value"] if len(convs) > 0 and convs[0]["from"] == "system" else ""
+        user_content = convs[1]["value"] if len(convs) > 1 and convs[1]["from"] == "human" else (convs[0]["value"] if convs else "")
 
-    # 4. Text Processing & Formatting
-    [{"role": "user", "content": "Translate 'Hello, how are you?' into Spanish."}],
-    [{"role": "user", "content": "Capitalize all words in this sentence: 'the cat sat on the mat'."}],
-    [{"role": "user", "content": "Count the number of words in this sentence: 'I love learning new things.'"}],
-    [{"role": "user", "content": "What is the opposite of the word 'heavy'?"}],
+        # Prepend system instructions to the first user turn
+        combined_content = f"{system_content}\n\n{user_content}".strip() if system_content else user_content
 
-    # 5. Short General Knowledge & Everyday Queries
-    [{"role": "user", "content": "Name two ingredients used to make a simple cheese sandwich."}],
-    [{"role": "user", "content": "Why do humans need to drink water?"}],
-    [{"role": "user", "content": "What sound does a dog make?"}],
-    [{"role": "user", "content": "List three common primary colors."}],
-    [{"role": "user", "content": "How many hours are there in one day?"}],
-    [{"role": "user", "content": "What season comes right after winter?"}],
-]
+        transformed_ds.append([
+            {"role": "user", "content": combined_content}
+        ])
 
-    responses = model_inference_engine().run.remote(messages)
-
-    print("\n--- Model Response ---")
-
-    for message, response in zip(messages,responses):
-        question = message[0]["content"]
-
-        output = """
-        Question: <question>
-        Model Says: <answer>
-        """
-
-        output = output.replace("<question>", question)
-        output = output.replace("<answer>", response)
-
-        print(output)
-        print("*"*20)
-
+    return transformed_ds
 
 if __name__ == "__main__":
 
+    # Downloading the dataset
+    ds = load_dataset("NousResearch/hermes-function-calling-v1", "func_calling")
 
-    go_for_the_evaluation_boy()
+    ds_train_test = ds["train"].train_test_split(
+        test_size=0.2,
+        seed=42
+    )
+
+    # Note on Gemma role mapping:
+    # Gemma's default chat template only supports alternating 'user' and 'assistant' roles:
+    # - "system" -> prepended into the first "user" message
+    # - "human"  -> "user"
+    # - "gpt"    -> "assistant"
+    # - "tool"   -> wrapped in <tool_response> inside a "user" message
+    system_user_messages = extract_system_and_user_messages_only(ds_train_test["test"])
+
+    # print(system_user_messages[0])
+    # print("="*20)
+    # for x in ds_train_test["test"][111]["conversations"]:
+        # print("="*20)
+        # print(x)
+    # print(ds_train_test["test"][0]["conversations"])
+
+    model_responses = go_for_the_evaluation_boy(messages=system_user_messages[:5])
+
+    for mr in model_responses:
+        print("="*20)
+        print(mr)

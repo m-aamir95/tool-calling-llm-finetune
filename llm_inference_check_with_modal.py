@@ -76,8 +76,7 @@ class GemmaInference:
         )
 
     @modal.method()
-    
-    def run(self, messages: list[list[dict[str, str]]]) -> str:
+    def run(self, messages: list[list[dict[str, str]]]) -> list[str]:
         """
         messages : List of all the requests for the model
                    -> each request contains another list of messages storred in the chatml format
