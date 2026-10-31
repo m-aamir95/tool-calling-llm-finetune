@@ -19,8 +19,11 @@ image_to_use = (
     .pip_install_from_requirements("requirements.txt")
 )
 
+#Setting up volume
 model_volume = modal.Volume.from_name("gemma-models", create_if_missing=True)
 
+
+# Creating the modal, for executing remote functions
 app = modal.App(
     name="llm-t4-inference-experimentation",
     image=image_to_use,
