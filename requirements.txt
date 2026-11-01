@@ -1,3 +1,4 @@
 modal
 python-dotenv
 datasets
+pandas

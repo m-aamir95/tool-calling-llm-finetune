@@ -1,4 +1,5 @@
 import modal
+import pandas as pd
 from datasets import load_dataset
 from typing import Dict
 
@@ -43,6 +44,8 @@ def extract_system_and_user_messages_only(ds):
     Instead, system instructions are prepended directly into the first user turn.
     """
     transformed_ds = []
+    target_tools = []
+    raw_conversations = []
     for d in ds:
         convs = d["conversations"]
         system_content = convs[0]["value"] if len(convs) > 0 and convs[0]["from"] == "system" else ""
@@ -55,7 +58,12 @@ def extract_system_and_user_messages_only(ds):
             {"role": "user", "content": combined_content}
         ])
 
-    return transformed_ds
+        target_tools.append(convs[2] if len(convs) > 2 else None)
+
+        raw_conversations.append(convs)
+
+
+    return transformed_ds, target_tools, raw_conversations
 
 if __name__ == "__main__":
 
@@ -73,17 +81,30 @@ if __name__ == "__main__":
     # - "human"  -> "user"
     # - "gpt"    -> "assistant"
     # - "tool"   -> wrapped in <tool_response> inside a "user" message
-    system_user_messages = extract_system_and_user_messages_only(ds_train_test["test"])
+    system_user_messages, target_tools, raw_conversations = extract_system_and_user_messages_only(ds_train_test["test"])
 
-    # print(system_user_messages[0])
-    # print("="*20)
-    # for x in ds_train_test["test"][111]["conversations"]:
-        # print("="*20)
-        # print(x)
-    # print(ds_train_test["test"][0]["conversations"])
+    batch_size = 5
+    batch_dfs = []
 
-    model_responses = go_for_the_evaluation_boy(messages=system_user_messages[:5])
+    for batch_idx in range(0, len(system_user_messages), batch_size):
+        batch_messages = system_user_messages[batch_idx : batch_idx + batch_size]
+        batch_target_tools = target_tools[batch_idx : batch_idx + batch_size]
+        batch_raw_convs = raw_conversations[batch_idx : batch_idx + batch_size]
 
-    for mr in model_responses:
-        print("="*20)
-        print(mr)
+        model_responses = go_for_the_evaluation_boy(messages=batch_messages)
+
+        batch_df = pd.DataFrame({
+            "raw_conversations": batch_raw_convs,
+            "system_user_messages": batch_messages,
+            "target_tools": batch_target_tools,
+            "model_responses": model_responses,
+        })
+        batch_dfs.append(batch_df)
+
+    evaluation_df = pd.concat(batch_dfs, ignore_index=True) if batch_dfs else pd.DataFrame()
+
+    output_path = "func_calling_dataset_gemma_2_2b_it_responses.json"
+    evaluation_df.to_json(output_path, indent=2)
+    print(f"Saved {len(evaluation_df)} evaluated rows to {output_path}")
+
+    
