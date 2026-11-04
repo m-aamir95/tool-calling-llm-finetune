@@ -4,6 +4,25 @@ This repository contains tools, inference pipelines, and an evaluation suite des
 
 ---
 
+## Repository Layout
+
+```text
+data/responses/
+├── base/       # Base Gemma inference outputs (column-oriented and records JSON)
+└── finetuned/  # LoRA fine-tuned Gemma inference outputs
+notebooks/      # Fine-tuning and Modal client notebooks
+reports/        # Saved evaluation reports
+src/
+├── evaluation/ # Dataset preparation, inference clients, and evaluation scripts
+└── modal_apps/
+    ├── base/   # Base-model Modal inference app
+    └── finetuned/ # Fine-tuned-model Modal inference app
+```
+
+`requirements.txt`, `sample.env`, and the project `README.md` remain at the repository root. Run the commands below from the repository root and pass explicit input paths because datasets and scripts are organized into subdirectories.
+
+---
+
 ## 1. Tool Calling Evaluation Plan
 
 Evaluating an LLM's tool calling capability requires more than standard natural language metrics (like ROUGE or BLEU) or basic text matching. A deployed model in an agentic workflow must act as a reliable runtime component: it must adhere to strict serialization protocols, trigger tools conditionally, choose the correct APIs, supply valid argument types and values, and maintain sequence precedence when multiple functions are required.
@@ -80,12 +99,12 @@ For complex user requests that require multiple functions executed in a specific
 
 ---
 
-## 3. Evaluation Script Implementation: `model_func_results_evaluation.py`
+## 3. Evaluation Script Implementation: `src/evaluation/model_func_results_evaluation.py`
 
-The evaluation script is implemented in [`model_func_results_evaluation.py`](file:///workspaces/tool-calling-llm-finetune/model_func_results_evaluation.py).
+The evaluation script is implemented in [`src/evaluation/model_func_results_evaluation.py`](./src/evaluation/model_func_results_evaluation.py).
 
 ### Key Architectural Highlights:
-1. **Multi-Format Input Support**: Seamlessly reads both column-oriented JSON (`func_calling_dataset_gemma_2_2b_it_responses.json`) and records-oriented JSON (`func_calling_dataset_gemma_2_2b_it_responses_records.json`).
+1. **Multi-Format Input Support**: Reads both column-oriented JSON ([base output](./data/responses/base/func_calling_dataset_gemma_2_2b_it_responses.json)) and records-oriented JSON ([base records](./data/responses/base/func_calling_dataset_gemma_2_2b_it_responses_records.json)).
 2. **Robust Normalization Pipeline**:
    - Handles Hermes dataset structural nuances, such as inverted parameter mappings (`{"arguments": {"name": "func_name", ...}}`).
    - Handles escaped unicode characters (e.g. `\\n` literals vs `\n`).
@@ -93,20 +112,43 @@ The evaluation script is implemented in [`model_func_results_evaluation.py`](fil
 3. **Dual Evaluation Mode (Strict vs Relaxed)**:
    - **Strict Mode**: Requires exact `<tool_call>` tag formatting.
    - **Relaxed Mode**: Accepts markdown code fences (````json [ ... ] ````) to isolate whether errors stem from syntax protocol adherence versus underlying tool reasoning ability.
-4. **Detailed Reporting**: Saves a complete JSON report (`evaluation_report.json`) with sample-by-sample diagnostics, confusion matrices, and subgroup breakdowns (single-tool vs multi-tool).
+4. **Detailed Reporting**: Saves a complete JSON report to the path passed with `--output`, including sample-by-sample diagnostics, confusion matrices, and subgroup breakdowns (single-tool vs multi-tool). The checked-in report is [reports/evaluation_report.json](./reports/evaluation_report.json).
 
 ### CLI Usage:
 
 ```bash
-# Run evaluation with default records dataset
-python3 model_func_results_evaluation.py
+# Evaluate the base-model records dataset
+python3 src/evaluation/model_func_results_evaluation.py \
+  --input data/responses/base/func_calling_dataset_gemma_2_2b_it_responses_records.json \
+  --output reports/base_evaluation_report.json
 
-# Run evaluation on a specific input file and custom report destination
-python3 model_func_results_evaluation.py --input func_calling_dataset_gemma_2_2b_it_responses.json --output my_report.json
+# Evaluate fine-tuned responses
+python3 src/evaluation/model_func_results_evaluation.py \
+  --input data/responses/finetuned/func_calling_dataset_gemma_lora_responses_via_fine_tuned.json \
+  --output reports/finetuned_evaluation_report.json
 
-# Run evaluation on first 50 samples with verbose failure analysis
-python3 model_func_results_evaluation.py --limit 50 --verbose
+# Evaluate the first 50 samples with verbose failure analysis
+python3 src/evaluation/model_func_results_evaluation.py \
+  --input data/responses/base/func_calling_dataset_gemma_2_2b_it_responses_records.json \
+  --output reports/base_sample_evaluation_report.json \
+  --limit 50 --verbose
+
 ```
+
+The converter resolves its input and output filenames relative to the current working directory. Run it from `data/responses/base/`:
+
+```bash
+cd data/responses/base
+python3 ../../../src/evaluation/convert_evaluation_json_to_records.py
+```
+
+Modal app files are under `src/modal_apps/`. For example, deploy the base inference app from the repository root with:
+
+```bash
+modal deploy src/modal_apps/base/llm_inference_check_with_modal.py
+```
+
+Fine-tuning and client notebooks are in [`notebooks/`](./notebooks/).
 
 ---
 
