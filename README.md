@@ -10,7 +10,6 @@ This repository contains tools, inference pipelines, and an evaluation suite des
 data/responses/
 ├── base/       # Base Gemma inference outputs (column-oriented and records JSON)
 └── finetuned/  # LoRA fine-tuned Gemma inference outputs
-notebooks/      # Fine-tuning and Modal client notebooks
 reports/        # Saved evaluation reports
 src/
 ├── evaluation/ # Dataset preparation, inference clients, and evaluation scripts
@@ -58,9 +57,11 @@ Measures whether the model generates syntactically valid function calls adhering
 
 ### Dimension 2: Tool Invocation Decision
 Evaluates whether the model correctly decides to trigger a tool versus declining or answering in plain text.
-`Precision = TP / (TP + FP)`  
-`Recall = TP / (TP + FN)`  
-`F1 = 2 * Precision * Recall / (Precision + Recall)`
+```text
+Precision = TP / (TP + FP)
+Recall    = TP / (TP + FN)
+F1        = 2 * Precision * Recall / (Precision + Recall)
+```
 * **True Positive (TP)**: Tool was required by the user prompt, and the model invoked at least one tool.
 * **False Positive (FP)**: No tool was needed, but the model called a tool.
 * **False Negative (FN)**: Tool was needed, but the model answered in conversational text or failed to call.
@@ -77,8 +78,8 @@ Evaluates whether the model identified and selected the correct function names f
 ### Dimension 4: Schema & Argument Matching
 Evaluates whether the arguments passed to functions have the expected keys, parameter types, and values.
 * **Argument Key Precision & Recall**:
-  `Key Precision = |K_pred ∩ K_target| / |K_pred|`  
-  `Key Recall = |K_pred ∩ K_target| / |K_target|`
+  - `Key Precision = |K_pred ∩ K_target| / |K_pred|`
+  - `Key Recall = |K_pred ∩ K_target| / |K_target|`
 * **Argument Type Match Rate**: For matching keys, tests whether the Python / JSON datatypes match (e.g. `list`, `str`, `int`, `dict`), with numerical equivalence between `int` and `float`.
 * **Argument Value Exact Match**: Fraction of parameters whose values match identically (`v_pred == v_target`).
 * **Argument Value Normalized Match**: Evaluates semantic equivalence by:
@@ -96,6 +97,8 @@ For complex user requests that require multiple functions executed in a specific
 
 For example, if the target is `[fetch, analyze, summarize]` and the model predicts `[fetch, summarize]`, exact sequence match is false, sequence similarity gives partial credit for the ordered overlap, and the tool-count difference is `2 - 3 = -1`.
 
+The evaluator reports these sequence and count metrics over all samples; it also reports a separate sequence-match breakdown for multi-tool samples.
+
 ### Dimension 6: Composite End-to-End Success Rates
 * **Strict E2E Accuracy**: Response has valid `<tool_call>` tags + strict JSON + exact tool name sequence + all argument keys and values match exactly.
 * **Functional E2E Accuracy**: Correct tool sequence + normalized argument match (tolerating formatting variations like markdown blocks).
@@ -103,60 +106,7 @@ For example, if the target is `[fetch, analyze, summarize]` and the model predic
 
 ---
 
-## 3. Evaluation Script Implementation: `src/evaluation/model_func_results_evaluation.py`
-
-The evaluation script is implemented in [`src/evaluation/model_func_results_evaluation.py`](./src/evaluation/model_func_results_evaluation.py).
-
-### Key Architectural Highlights:
-1. **Multi-Format Input Support**: Reads both column-oriented JSON ([base output](./data/responses/base/func_calling_dataset_gemma_2_2b_it_responses.json)) and records-oriented JSON ([base records](./data/responses/base/func_calling_dataset_gemma_2_2b_it_responses_records.json)).
-2. **Robust Normalization Pipeline**:
-   - Handles Hermes dataset structural nuances, such as inverted parameter mappings (`{"arguments": {"name": "func_name", ...}}`).
-   - Handles escaped unicode characters (e.g. `\\n` literals vs `\n`).
-   - Normalizes nested function wrappers (`{"function": {"name": ...}}`).
-3. **Dual Evaluation Mode (Strict vs Relaxed)**:
-   - **Strict Mode**: Requires exact `<tool_call>` tag formatting.
-   - **Relaxed Mode**: Accepts markdown code fences (````json [ ... ] ````) to isolate whether errors stem from syntax protocol adherence versus underlying tool reasoning ability.
-4. **Detailed Reporting**: Saves a complete JSON report to the path passed with `--output`, including sample-by-sample diagnostics, confusion matrices, and subgroup breakdowns (single-tool vs multi-tool). The checked-in report is [reports/evaluation_report.json](./reports/evaluation_report.json).
-
-### CLI Usage:
-
-```bash
-# Evaluate the base-model records dataset
-python3 src/evaluation/model_func_results_evaluation.py \
-  --input data/responses/base/func_calling_dataset_gemma_2_2b_it_responses_records.json \
-  --output reports/base_evaluation_report.json
-
-# Evaluate fine-tuned responses
-python3 src/evaluation/model_func_results_evaluation.py \
-  --input data/responses/finetuned/func_calling_dataset_gemma_lora_responses_via_fine_tuned.json \
-  --output reports/finetuned_evaluation_report.json
-
-# Evaluate the first 50 samples with verbose failure analysis
-python3 src/evaluation/model_func_results_evaluation.py \
-  --input data/responses/base/func_calling_dataset_gemma_2_2b_it_responses_records.json \
-  --output reports/base_sample_evaluation_report.json \
-  --limit 50 --verbose
-
-```
-
-The converter resolves its input and output filenames relative to the current working directory. Run it from `data/responses/base/`:
-
-```bash
-cd data/responses/base
-python3 ../../../src/evaluation/convert_evaluation_json_to_records.py
-```
-
-Modal app files are under `src/modal_apps/`. For example, deploy the base inference app from the repository root with:
-
-```bash
-modal deploy src/modal_apps/base/llm_inference_check_with_modal.py
-```
-
-Fine-tuning and client notebooks are in [`notebooks/`](./notebooks/).
-
----
-
-## 4. Gemma-2-2B-IT Baseline Benchmark Results
+## 3. Gemma-2-2B-IT Baseline Benchmark Results
 
 We evaluated **Google Gemma-2-2B-IT** on the Hermes function calling test split (**379 samples**, including 269 single-tool and 110 multi-tool queries).
 
@@ -178,7 +128,7 @@ We evaluated **Google Gemma-2-2B-IT** on the Hermes function calling test split 
 
 ---
 
-## 5. Primary Error Modes & Fine-Tuning Recommendations
+## 4. Primary Error Modes & Fine-Tuning Recommendations
 
 The evaluation benchmark surfaced three primary error modes in the base Gemma-2-2B-IT model:
 
