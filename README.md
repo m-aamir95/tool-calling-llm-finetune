@@ -58,7 +58,9 @@ Measures whether the model generates syntactically valid function calls adhering
 
 ### Dimension 2: Tool Invocation Decision
 Evaluates whether the model correctly decides to trigger a tool versus declining or answering in plain text.
-$$\text{Precision} = \frac{TP}{TP + FP}, \quad \text{Recall} = \frac{TP}{TP + FN}, \quad F_1 = \frac{2 \cdot \text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}}$$
+`Precision = TP / (TP + FP)`  
+`Recall = TP / (TP + FN)`  
+`F1 = 2 * Precision * Recall / (Precision + Recall)`
 * **True Positive (TP)**: Tool was required by the user prompt, and the model invoked at least one tool.
 * **False Positive (FP)**: No tool was needed, but the model called a tool.
 * **False Negative (FN)**: Tool was needed, but the model answered in conversational text or failed to call.
@@ -66,18 +68,19 @@ $$\text{Precision} = \frac{TP}{TP + FP}, \quad \text{Recall} = \frac{TP}{TP + FN
 
 ### Dimension 3: Tool Selection & Name Matching
 Evaluates whether the model identified and selected the correct function names from the available APIs.
-* **Exact Tool Name Match Rate**: Binary match indicating whether the set of called tools matches the target set: $S_{pred} = S_{target}$.
+* **Exact Tool Name Match Rate**: Binary match indicating whether the set of called tools matches the target set: `S_pred == S_target`.
 * **Tool Set Jaccard Similarity**:
-  $$J(S_{pred}, S_{target}) = \frac{|S_{pred} \cap S_{target}|}{|S_{pred} \cup S_{target}|}$$
+  `J(S_pred, S_target) = |S_pred ∩ S_target| / |S_pred ∪ S_target|`
 * **Tool Selection Precision & Recall**: Per-query precision and recall are averaged across the dataset (macro averaging), giving each query equal weight. These metrics are not micro-averaged in the current evaluator.
 * **Avg Hallucinated Tools per Query**: Mean count of predicted tool names that do not exist in the target set.
 
 ### Dimension 4: Schema & Argument Matching
 Evaluates whether the arguments passed to functions have the expected keys, parameter types, and values.
 * **Argument Key Precision & Recall**:
-  $$\text{Key Prec} = \frac{|K_{pred} \cap K_{target}|}{|K_{pred}|}, \quad \text{Key Rec} = \frac{|K_{pred} \cap K_{target}|}{|K_{target}|}$$
+  `Key Precision = |K_pred ∩ K_target| / |K_pred|`  
+  `Key Recall = |K_pred ∩ K_target| / |K_target|`
 * **Argument Type Match Rate**: For matching keys, tests whether the Python / JSON datatypes match (e.g. `list`, `str`, `int`, `dict`), with numerical equivalence between `int` and `float`.
-* **Argument Value Exact Match**: Fraction of parameters whose values match identically ($v_{pred} == v_{target}$).
+* **Argument Value Exact Match**: Fraction of parameters whose values match identically (`v_pred == v_target`).
 * **Argument Value Normalized Match**: Evaluates semantic equivalence by:
   - Trimming leading/trailing whitespace and ignoring case in strings.
   - Normalizing leading periods in file extensions (e.g. `".pdf"` vs `"pdf"`).
@@ -85,12 +88,13 @@ Evaluates whether the arguments passed to functions have the expected keys, para
   - Floating-point tolerance rounding.
 
 ### Dimension 5: Tool Precedence & Ordering (Multi-Tool Sequences)
-For complex user requests that require multiple functions executed in a specific workflow (e.g., Step 1: fetch data $\rightarrow$ Step 2: compute analytics):
-* **Sequence Exact Match Rate**: The ordered sequence of tool names matches the target sequence exactly:
-  $$[f_1, f_2, \dots, f_m] == [f_1^*, f_2^*, \dots, f_m^*]$$
-* **Sequence Edit Similarity**: Normalized Levenshtein ratio between the predicted tool sequence and the target sequence.
-* **Tool Count Match Rate**: Percentage of samples where $\text{len}(\text{calls}_{pred}) == \text{len}(\text{calls}_{target})$.
-* **Tool Count Divergence**: Mean difference $\text{len}(\text{calls}_{pred}) - \text{len}(\text{calls}_{target})$ (identifies systematic over-calling or under-calling).
+For complex user requests that require multiple functions executed in a specific workflow (e.g., Step 1: fetch data, then Step 2: compute analytics), this dimension checks both the selected tools and their order.
+* **Sequence Exact Match Rate**: The predicted ordered sequence must equal the target ordered sequence, including the number of calls. For example, `[fetch, analyze]` matches `[fetch, analyze]`, but not `[analyze, fetch]` or `[fetch]`.
+* **Sequence Similarity**: An order-sensitive similarity score calculated using Python's `difflib.SequenceMatcher` ratio (not Levenshtein distance). It gives partial credit when some tool names match in order, even if the full sequences differ.
+* **Tool Count Match Rate**: Fraction of samples where `len(predicted_calls) == len(target_calls)`.
+* **Tool Count Divergence**: Average of `len(predicted_calls) - len(target_calls)` across samples. A negative value indicates the model tends to omit calls; a positive value indicates it tends to add calls.
+
+For example, if the target is `[fetch, analyze, summarize]` and the model predicts `[fetch, summarize]`, exact sequence match is false, sequence similarity gives partial credit for the ordered overlap, and the tool-count difference is `2 - 3 = -1`.
 
 ### Dimension 6: Composite End-to-End Success Rates
 * **Strict E2E Accuracy**: Response has valid `<tool_call>` tags + strict JSON + exact tool name sequence + all argument keys and values match exactly.
