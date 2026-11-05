@@ -106,38 +106,37 @@ The evaluator reports these sequence and count metrics over all samples; it also
 
 ---
 
-## 3. Gemma-2-2B-IT Baseline Benchmark Results
+## 3. Base vs. Fine-Tuned Benchmark Results
 
-We evaluated **Google Gemma-2-2B-IT** on the Hermes function calling test split (**379 samples**, including 269 single-tool and 110 multi-tool queries).
+We compared the **Google Gemma-2-2B-IT base model** with its **LoRA fine-tuned version** on the same 379 Hermes function-calling examples (269 single-tool and 110 multi-tool queries). The table reports strict-mode results; changes are absolute percentage-point differences.
 
-### Benchmark Scorecard Comparison:
+### Strict-Mode Benchmark Comparison
 
-| Evaluation Metric | Strict Hermes Mode | Relaxed / Tolerant Mode | Analysis & Insights |
-| :--- | :---: | :---: | :--- |
-| **Tool Invocation Recall** | **50.26%** | **82.54%** | Model attempts function calling in 82.5% of queries, but omits `<tool_call>` tags in ~32% of cases. |
-| **Tool Invocation F1** | **66.78%** | **90.30%** | When relaxed, the model demonstrates high sensitivity to queries requiring tools. |
-| **Exact Tool Name Match** | **37.99%** | **67.55%** | Under relaxed parsing, the model selects the exact correct tool in over two-thirds of samples. |
-| **Tool Set Jaccard Similarity**| **43.45%** | **74.10%** | High tool set overlap with target functions. |
-| **Tag Compliance Rate** | **51.98%** | **51.98%** | Approximately half the responses follow the expected `<tool_call>` XML convention. |
-| **Argument Key F1** | **38.17%** | **45.56%** | Model generates appropriate parameter names for matching functions. |
-| **Argument Value Exact Match**| **33.07%** | **39.55%** | Model extracts values accurately from context passages and user prompts. |
-| **Multi-Tool Sequence Match** | **45.45%** | **60.91%** | Model correctly sequences multi-step tool calls in 60.9% of multi-tool queries. |
-| **Strict E2E Accuracy** | **17.94%** | **17.94%** | Flawless end-to-end execution (tags + strict JSON + exact tool + exact args). |
-| **Functional E2E Accuracy** | **18.47%** | **22.16%** | End-to-end task completion with normalized argument equivalence. |
-| **Tool Sequence Accuracy** | **35.88%** | **64.91%** | Tool selection and workflow ordering without penalizing argument value formatting. |
+| Evaluation Metric | Base Model | LoRA Fine-Tuned | Change |
+| :--- | :---: | :---: | :---: |
+| Tag compliance | 51.98% | **60.69%** | **+8.71 pp** |
+| Strict JSON parse rate | 49.34% | **60.69%** | **+11.35 pp** |
+| Tool invocation recall | 50.26% | **60.58%** | **+10.32 pp** |
+| Tool invocation F1 | 66.78% | **75.33%** | **+8.55 pp** |
+| Exact tool-name match | 37.99% | **46.97%** | **+8.97 pp** |
+| Tool-set Jaccard similarity | 43.45% | **52.99%** | **+9.54 pp** |
+| Argument-key F1 | 38.17% | **51.13%** | **+12.95 pp** |
+| Exact argument-value match | 33.07% | **45.27%** | **+12.21 pp** |
+| Multi-tool sequence exact match | 45.45% | **65.45%** | **+20.00 pp** |
+| Strict end-to-end accuracy | 17.94% | **27.70%** | **+9.76 pp** |
+| Functional end-to-end accuracy | 18.47% | **27.97%** | **+9.50 pp** |
+| Tool sequence accuracy | 35.88% | **44.33%** | **+8.44 pp** |
+
+Fine-tuning improved every listed strict-mode metric. The largest gains were in multi-tool sequence matching and argument-key F1. Strict end-to-end accuracy increased from 17.94% to 27.70% (about a 54% relative increase), though fewer than one in three examples met the complete strict-success criteria.
+
+**Interpretation caveat:** The fine-tuned responses include a non-standard hyphenated `<tool-call>` tag in some outputs, while the evaluator recognizes the standard `<tool_call>` tag. Those hyphenated outputs are not counted as tool calls in strict mode, so strict results reflect both model capability and adherence to the expected output protocol. In relaxed mode, the base model scores higher on tool invocation recall (82.54% vs. 60.58%), exact tool-name match (67.55% vs. 46.97%), and tool sequence accuracy (64.91% vs. 44.33%), because its alternate formats are more recoverable by the evaluator. Fine-tuning still leads on relaxed functional end-to-end accuracy (27.97% vs. 22.16%) and argument-key F1 (51.13% vs. 45.56%). Interpret both modes with the parser behavior in mind.
 
 ---
 
-## 4. Primary Error Modes & Fine-Tuning Recommendations
+## 4. Remaining Error Modes & Next Steps
 
-The evaluation benchmark surfaced three primary error modes in the base Gemma-2-2B-IT model:
+The comparison shows clear gains from fine-tuning, while highlighting areas that still need work:
 
-1. **Protocol Drift (Markdown instead of XML tags)**:
-   In ~32% of responses, the model generated valid JSON tool calls inside markdown code fences (````json [ ... ] ````) instead of `<tool_call> ... </tool_call>`.
-   * *Recommendation*: Supervised Fine-Tuning (SFT) with explicit negative penalty on code fences and reinforcement of `<tool_call>` token boundaries.
-2. **Schema Echoing / Hallucination (10.03% of samples)**:
-   The model occasionally regurgitated the `<tools>` schema definition rather than generating an actual invocation payload.
-   * *Recommendation*: Train on diverse system prompts where schema definitions are placed in system instructions and conversational turns strictly output invocation payloads.
-3. **Multi-Tool Sequence Truncation**:
-   In complex 3-step or 4-step queries, the model often called the first 1 or 2 tools, omitting downstream tools in the sequence.
-   * *Recommendation*: Augment the training split with multi-turn and chained tool-call trajectories.
+1. **Output-format consistency:** Fine-tuning eliminated schema-only responses in this evaluation (10.03% for the base model versus 0% fine-tuned), but some fine-tuned outputs use `<tool-call>` instead of the required `<tool_call>` syntax. Standardizing the training targets and reinforcing the exact tag format could improve parser compatibility.
+2. **Complete call and argument accuracy:** Fine-tuned strict end-to-end accuracy is 27.70%. Argument-key F1 improved substantially, but the exact argument-value match rate is 45.27%. More targeted examples and validation of required arguments may help.
+3. **Multi-tool completeness:** Exact sequence match improved to 65.45% on multi-tool queries, but the model still misses or adds calls in many cases. More examples of complete ordered tool-call sequences may help address this.
