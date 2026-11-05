@@ -69,7 +69,7 @@ Evaluates whether the model identified and selected the correct function names f
 * **Exact Tool Name Match Rate**: Binary match indicating whether the set of called tools matches the target set: $S_{pred} = S_{target}$.
 * **Tool Set Jaccard Similarity**:
   $$J(S_{pred}, S_{target}) = \frac{|S_{pred} \cap S_{target}|}{|S_{pred} \cup S_{target}|}$$
-* **Tool Selection Precision & Recall**: Micro- and macro-averaged precision of predicted tools against required tools.
+* **Tool Selection Precision & Recall**: Per-query precision and recall are averaged across the dataset (macro averaging), giving each query equal weight. These metrics are not micro-averaged in the current evaluator.
 * **Avg Hallucinated Tools per Query**: Mean count of predicted tool names that do not exist in the target set.
 
 ### Dimension 4: Schema & Argument Matching
